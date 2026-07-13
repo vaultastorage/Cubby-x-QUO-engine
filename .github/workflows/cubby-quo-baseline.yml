@@ -1,0 +1,43 @@
+name: Cubby to Quo baseline (weekly reconcile)
+
+# Full idempotent reconcile once a week — the safety net for anything the
+# incremental `run` cursor can't see (e.g. a move-out that becomes effective by
+# date with no record edit). Also re-seeds the cursor. Safe to run anytime.
+on:
+  schedule:
+    - cron: "0 9 * * 0"     # Sundays 09:00 UTC
+  workflow_dispatch: {}
+
+concurrency:
+  group: cubby-quo-baseline
+  cancel-in-progress: false
+
+jobs:
+  baseline:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -r requirements.txt
+      - name: Full reconcile
+        env:
+          CUBBY_API_KEY: ${{ secrets.CUBBY_API_KEY }}
+          QUO_API_KEY: ${{ secrets.QUO_API_KEY }}
+          CUBBY_FACILITY_IDS: ${{ vars.CUBBY_FACILITY_IDS }}
+          SYNC_DEBUG: "1"
+        run: python engine.py baseline --commit
+      - name: Persist cursor
+        run: |
+          git config user.name "cubby-quo-bot"
+          git config user.email "bot@users.noreply.github.com"
+          git add -f state.json
+          if git diff --cached --quiet; then
+            echo "No state change to commit."
+          else
+            git commit -m "baseline: reconcile + cursor [skip ci]"
+            git push
+          fi

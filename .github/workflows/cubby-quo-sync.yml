@@ -1,0 +1,46 @@
+name: Cubby to Quo sync
+
+# Runs the incremental sync 3x/day. Times are UTC.
+# 11:00, 18:00, 23:00 UTC ≈ 06:00, 13:00, 18:00 US Central. Adjust to taste.
+on:
+  schedule:
+    - cron: "0 11,18,23 * * *"
+  workflow_dispatch: {}   # manual trigger from the Actions tab
+
+concurrency:
+  group: cubby-quo-sync
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write   # to commit the updated state.json back
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - run: pip install -r requirements.txt
+
+      - name: Run incremental sync
+        env:
+          CUBBY_API_KEY: ${{ secrets.CUBBY_API_KEY }}
+          QUO_API_KEY: ${{ secrets.QUO_API_KEY }}
+          CUBBY_FACILITY_IDS: ${{ vars.CUBBY_FACILITY_IDS }}
+          SYNC_DEBUG: "1"
+        run: python engine.py run --commit
+
+      - name: Persist cursor
+        run: |
+          git config user.name "cubby-quo-bot"
+          git config user.email "bot@users.noreply.github.com"
+          git add -f state.json          # state.json is gitignored; force-add so the cursor survives runs
+          if git diff --cached --quiet; then
+            echo "No state change to commit."
+          else
+            git commit -m "sync: update cursor [skip ci]"
+            git push
+          fi

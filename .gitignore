@@ -1,0 +1,15 @@
+# Secrets — never commit
+.env
+
+# Generated artifacts
+baseline_preview.csv
+exports/
+
+# Local state (the GitHub Action commits its own copy; keep local out of git)
+state.json
+
+# Python
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
