@@ -5,6 +5,16 @@ in lockstep with tenant data in Cubby (self-storage property management). Read t
 whole file before doing anything. The reference docs in `docs/` are the source of
 truth for both APIs — use them instead of guessing or re-fetching.
 
+## Current implementation (2026-07 — the production path)
+The live sync is **`engine.py`** (externalId-anchored) — it supersedes the original
+`state.json` id_map design in the notes below. Model: each card is keyed by the Cubby
+`customerId` stored as the Quo `externalId`; the one write path `upsert` looks up by
+externalId → PATCH (full payload) if found, else POST. Commands: `adopt` (one-time
+bridge of the CSV-imported cards — completed 277/277), `run` (incremental via the
+cursor), `baseline` (full reconcile + cursor). Deploy: `docs/DEPLOY.md`. Verify:
+`docs/VERIFICATION.md`. `cubby_quo_sync.py` remains for `check` and the shared
+Cubby/Quo helpers that `engine.py` imports.
+
 ## Goal
 For each Cubby customer, maintain exactly one Quo contact card whose name is the
 customer's name plus their currently-active units, or "Former" if they have none:
@@ -22,10 +32,13 @@ The card is keyed on the Cubby `customerId` (`cust_...`), never on phone number.
 3. **Never delete Quo contacts from code.** The one-time wipe is done by the user
    manually in the Quo app. There is no destructive delete in this project, and you
    must not add one.
-4. **The API only manages contacts it created.** Quo keys all updates off the `id`
-   returned at creation (stored in `state.json` -> `id_map`). A contact created by
-   CSV/in-app cannot be patched by the API. So the baseline MUST be created via the
-   API (`baseline --commit`), not by CSV import. See `docs/QUO_API.md`.
+4. **Anchor on the Cubby `customerId` as the Quo `externalId`; never match on name/phone.**
+   Look up each card by `externalId` (`GET /v1/contacts?externalIds=`) → PATCH if found,
+   else POST. Every write sends the FULL payload (defaultFields + customFields +
+   externalId) — Quo PATCH REPLACES omitted arrays, so a partial write wipes data.
+   CSV/in-app cards CAN be adopted by PATCHing in their externalId (`engine.py adopt`).
+   `source` can't be a reserved word (csv*/openphone*/…); ours is `cubby-sync`. See
+   `docs/QUO_API.md` and the memory note quo-write-gotchas.
 5. **Keep the sync idempotent.** Every change recomputes the full card from the
    customer's current leases. Do not write event-specific handlers; if you think you
    need one, you've misunderstood — re-read `cubby_quo_sync.py:desired_card`.
